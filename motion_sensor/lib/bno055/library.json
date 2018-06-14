@@ -1,0 +1,6 @@
+{
+	"name": "bno055",
+	"build": {
+		"build_flags": "-DMACHINE_16_BIT"
+	}
+}
