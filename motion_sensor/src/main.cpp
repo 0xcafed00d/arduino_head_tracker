@@ -1,8 +1,27 @@
 #include <Arduino.h>
+#include <RF24.h>
+#include <SPI.h>
 #include <Wire.h>
 
 #include "bno055_impl.h"
 #include "log.h"
+
+/*
+        rf24	Arduino leonardo
+
+    1	GND		GND
+    2	3.3v	3.3v
+    3	CE		SDA (Ardiuno pin 2)
+    4	CSN		SCL (Ardiuno pin 3)
+    5	SCK		SCK
+    6	MOSI	MOSI
+    7	MISO	MISO
+    8	NC
+*/
+
+RF24 radio(2, 3);
+
+byte addresses[][6] = {"1Node", "2Node"};
 
 bno055_t bno055 = {0};
 
