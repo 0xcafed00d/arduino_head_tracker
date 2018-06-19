@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <FastLED.h>
 #include <RF24.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -6,8 +7,21 @@
 
 #include "bno055_impl.h"
 #include "log.h"
+#include "utils.h"
 
 Logger loggr(Serial);
+
+// ---------------------------------------------------------------
+// NeoPixel Config
+// ---------------------------------------------------------------
+static const int PIN_NEOPIXEL = A0;
+CRGB led;
+
+void setup_led() {
+	FastLED.addLeds<NEOPIXEL, PIN_NEOPIXEL>(&led, 1);
+	led = CRGB::Pink;
+	FastLED.show();
+}
 
 // ---------------------------------------------------------------
 // RF24 Config
@@ -33,6 +47,8 @@ byte addresses[][6] = {"1Node", "2Node"};
 
 void setup_rf24() {
 	radio.begin();
+	radio.setPALevel(RF24_PA_LOW);
+	radio.openWritingPipe(addresses[0]);
 	radio.printDetails();
 }
 
@@ -71,39 +87,59 @@ void setup() {
 	SPI.begin();
 	printf_begin();
 
+	setup_led();
 	setup_bno055();
 	setup_rf24();
 }
 
+struct PosData {
+	float x;
+	float y;
+};
+
+TimeOut updateTimer;
+
+void showCalibState() {
+	static int calViewIndex = 0;
+	static TimeOut timer;
+	static uint32_t colours[] = {0x200000, 0x002000, 0x000020};
+	static s8 (*calibFunctions[])(u8*) = {bno055_get_accel_calib_stat, bno055_get_gyro_calib_stat,
+	                                      bno055_get_mag_calib_stat};
+
+	if (timer.hasTimedOut()) {
+		timer = TimeOut(500);
+		u8 calibStat;
+		calibFunctions[calViewIndex](&calibStat);
+		led = colours[calViewIndex] * (3 - calibStat) * 2;
+		FastLED.show();
+		calViewIndex = (calViewIndex + 1) % 3;
+	}
+}
+
 void loop() {
-	u8 sys_cal_stat = 0;
-	bno055_get_sys_calib_stat(&sys_cal_stat);
-	u8 accel_cal_stat = 0;
-	bno055_get_accel_calib_stat(&accel_cal_stat);
-	u8 gyro_cal_stat = 0;
-	bno055_get_gyro_calib_stat(&gyro_cal_stat);
-	u8 mag_cal_stat = 0;
-	bno055_get_mag_calib_stat(&mag_cal_stat);
+	showCalibState();
 
-	bno055_euler_t q;
-	bno055_read_euler_hrp(&q);
-	bno055_euler_float_t f;
-	bno055_convert_float_euler_hpr_deg(&f);
+	if (updateTimer.hasTimedOut()) {
+		updateTimer = TimeOut(100);
 
-	delay(50);
+		bno055_euler_float_t f;
+		bno055_convert_float_euler_hpr_deg(&f);
 
-	if (digitalRead(PIN_ZERO_HEADING) == 0) {
-		zeroHeading = f.h;
+		if (digitalRead(PIN_ZERO_HEADING) == 0) {
+			zeroHeading = f.h;
+		}
+
+		f.h = f.h - zeroHeading;
+		if (f.h <= -180.0f) {
+			f.h += 360.0f;
+		}
+		if (f.h > 180.0f) {
+			f.h -= 360.0f;
+		}
+
+		loggr << "(" << f.h << f.p << f.r << ")";
+
+		PosData pd{f.h, f.p};
+		loggr << radio.write(&pd, sizeof(pd));
 	}
-
-	f.h = f.h - zeroHeading;
-	if (f.h <= -180.0f) {
-		f.h += 360.0f;
-	}
-	if (f.h > 180.0f) {
-		f.h -= 360.0f;
-	}
-
-	loggr << "(" << f.h << f.p << f.r << ")" << (int)sys_cal_stat << (int)accel_cal_stat
-	      << (int)gyro_cal_stat << (int)mag_cal_stat;
 }
