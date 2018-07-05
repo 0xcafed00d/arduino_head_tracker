@@ -5,6 +5,24 @@
 #include <RF24.h>
 #include <printf.h>
 
+#include "log.h"
+/*
+Joystick_ joystick(JOYSTICK_DEFAULT_REPORT_ID,
+                   JOYSTICK_TYPE_JOYSTICK,
+                   1,
+                   0,
+                   true,
+                   true,
+                   false,
+                   false,
+                   false,
+                   false,
+                   false,
+                   false,
+                   false,
+                   false,
+                   false);
+*/
 Joystick_ joystick;
 
 /*
@@ -24,34 +42,39 @@ RF24 radio(2, 3);
 
 byte addresses[][6] = {"1Node", "2Node"};
 
+Logger loggr(Serial);
+
 void setup() {
-	joystick.begin();
+	joystick.begin(false);
 	Mouse.begin();
 	Keyboard.begin();
 
-	while (!Serial) {
-	}
-
-	Serial.begin(115200);
+	joystick.setXAxisRange(-9000, 9000);
+	joystick.setYAxisRange(-9000, 9000);
 
 	radio.begin();
 	printf_begin();
 
 	radio.setPALevel(RF24_PA_LOW);
-
-	radio.openWritingPipe(addresses[0]);
-	radio.openReadingPipe(1, addresses[1]);
-
+	radio.openReadingPipe(1, addresses[0]);
 	radio.startListening();
 
 	radio.printDetails();
 }
 
+struct PosData {
+	float x;
+	float y;
+};
+
 void loop() {
-	uint32_t data;
+	PosData p;
 
 	if (radio.available()) {
-		radio.read(&data, sizeof(uint32_t));
-		Serial.println(data);
+		radio.read(&p, sizeof(p));
+		loggr << p.x << p.y;
+		joystick.setXAxis(p.x * 100);
+		joystick.setYAxis(p.y * 100);
+		joystick.sendState();
 	}
 }

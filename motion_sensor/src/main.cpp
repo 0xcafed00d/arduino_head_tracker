@@ -19,7 +19,7 @@ CRGB led;
 
 void setup_led() {
 	FastLED.addLeds<NEOPIXEL, PIN_NEOPIXEL>(&led, 1);
-	led = CRGB::Pink;
+	led = CRGB::Black;
 	FastLED.show();
 }
 
@@ -36,7 +36,7 @@ void setup_led() {
     5	SCK		SCK  pin 13
     6	MOSI	MOSI pin 11
     7	MISO	MISO pin 12
-    8	NC
+    8	NC		NC
 */
 static const int PIN_RF24_CE = 10;
 static const int PIN_RF24_CSN = 9;
@@ -57,6 +57,7 @@ void setup_rf24() {
 // ---------------------------------------------------------------
 bno055_t bno055 = {0};
 float zeroHeading = 0;
+float zeroPitch = 0;
 
 static const int PIN_BNO055_RESET = A3;
 static const int PIN_ZERO_HEADING = 4;
@@ -78,7 +79,7 @@ void setup_bno055() {
 	auto res = bno055_init(&bno055);
 	loggr << res << bno055.accel_rev_id << bno055.sw_rev_id;
 
-	bno055_set_operation_mode(BNO055_OPERATION_MODE_NDOF_FMC_OFF);
+	bno055_set_operation_mode(BNO055_OPERATION_MODE_NDOF);
 }
 
 void setup() {
@@ -99,21 +100,37 @@ struct PosData {
 
 TimeOut updateTimer;
 
+s8 dummy_calib_stat(u8* val) {
+	*val = 1;
+	return 0;
+}
+
 void showCalibState() {
 	static int calViewIndex = 0;
 	static TimeOut timer;
-	static uint32_t colours[] = {0x200000, 0x002000, 0x000020};
-	static s8 (*calibFunctions[])(u8*) = {bno055_get_accel_calib_stat, bno055_get_gyro_calib_stat,
-	                                      bno055_get_mag_calib_stat};
+	static uint32_t colours[] = {0, 0x100000, 0x001000, 0x000010};
+	static s8 (*calibFunctions[])(u8*) = {dummy_calib_stat, bno055_get_accel_calib_stat,
+	                                      bno055_get_gyro_calib_stat, bno055_get_mag_calib_stat};
 
 	if (timer.hasTimedOut()) {
-		timer = TimeOut(500);
 		u8 calibStat;
 		calibFunctions[calViewIndex](&calibStat);
-		led = colours[calViewIndex] * (3 - calibStat) * 2;
+		led = (calibStat == 3) ? 0 : colours[calViewIndex];
 		FastLED.show();
-		calViewIndex = (calViewIndex + 1) % 3;
+		calViewIndex = (calViewIndex + 1) % 4;
+
+		timer = TimeOut((3 - calibStat) * 100);
 	}
+}
+
+float normaliseAngle(float a) {
+	if (a <= -180.0f) {
+		a += 360.0f;
+	}
+	if (a > 180.0f) {
+		a -= 360.0f;
+	}
+	return a;
 }
 
 void loop() {
@@ -127,19 +144,15 @@ void loop() {
 
 		if (digitalRead(PIN_ZERO_HEADING) == 0) {
 			zeroHeading = f.h;
+			zeroPitch = f.p;
 		}
 
-		f.h = f.h - zeroHeading;
-		if (f.h <= -180.0f) {
-			f.h += 360.0f;
-		}
-		if (f.h > 180.0f) {
-			f.h -= 360.0f;
-		}
+		f.h = normaliseAngle(f.h - zeroHeading);
+		f.p = normaliseAngle(f.p - zeroPitch);
 
 		loggr << "(" << f.h << f.p << f.r << ")";
 
 		PosData pd{f.h, f.p};
-		loggr << radio.write(&pd, sizeof(pd));
+		loggr << radio.writeFast(&pd, sizeof(pd));
 	}
 }
